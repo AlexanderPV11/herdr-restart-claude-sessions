@@ -10,7 +10,7 @@ Los procesos no sobreviven a un reinicio. Herdr conserva spaces, tabs, splits y 
 
 1. **Hook de Claude Code** (`scripts/herdr-session-hook.js`). En `SessionStart` guarda el id de la sesión y su carpeta en `~/.config/herdr-app/data/claude-sessions/<terminal>.json`. La terminal se identifica con `HC_TERMINAL_ID`, variable que herdr-core define dentro de cada terminal, así que dos agentes en la misma carpeta no se confunden. Se actualiza solo en `/clear` o `/resume`, porque cambia el id de sesión.
 2. **Salida deliberada.** En `SessionEnd`, si el motivo es `prompt_input_exit` (`/exit`, Ctrl+C) o `logout`, borra el registro: esa terminal no se restaura. Con otros motivos (proceso muerto, apagado) lo conserva.
-3. **Mod** (`mods/claude-session-restore`). Durante los 2 primeros minutos tras arrancar herdr, busca terminales locales vivas **sin agente** que tengan registro y les envía `claude --resume <id>` con `hc send`. Si la carpeta de la shell no coincide con la guardada, antes hace `cd`. Muestra una barra fina abajo y una notificación al restaurar.
+3. **Mod** (`mods/claude-session-restore`). Durante los 2 primeros minutos tras arrancar herdr, busca terminales locales vivas que sean una **shell libre** (`program.shell`, sin agente que reporte en `report.app`) y que tengan registro, y les envía `claude --resume <id>` con `hc send`. Nunca escribe donde ya hay un agente u otro programa en marcha. Además ignora registros de menos de 2 minutos y no repite el mismo envío en 10 minutos (marca en `data/claude-session-restore/`). Si la carpeta de la shell no coincide con la guardada, antes hace `cd`. Muestra una barra fina abajo y una notificación al restaurar.
 
 ## Requisitos
 
@@ -73,7 +73,12 @@ Si ya tienes una clave `hooks`, agrega estas entradas a las listas existentes.
 - Solo se restauran los agentes registrados por el hook (los abiertos después de instalarlo).
 - Si cierras un panel con la X, Claude muere sin salida limpia y su archivo `<terminal>.json` queda huérfano. Es inofensivo mientras esa dirección no se reutilice; si herdr la reutilizara para una terminal nueva, el mod le escribiría un `claude --resume` dentro de la ventana de arranque. No se ha verificado si herdr reutiliza direcciones.
 - Un corte de luz restaura el último estado guardado.
+- El mod vuelve a revisar cada vez que se carga (arranque, cambio o edición del layout). Si Claude murió sin salida limpia y su terminal quedó como shell libre, ahí puede escribir el `claude --resume` fuera de un reinicio.
 - No se probó aún el ciclo completo de reinicio de la compu.
+
+## Historial
+
+- **Corregido:** el filtro usaba `t.agent`, un campo que `terminals()` no entrega a los mods, así que escribía `claude --resume` dentro de sesiones de Claude abiertas. Ahora solo escribe en una shell libre (`report.app` y `program.shell`).
 
 ## Licencia
 

@@ -3,7 +3,7 @@
 // session ran in each terminal, so this types `claude --resume <id>` into those shells.
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { terminals, hc, readTextFile, appHome, theme, checking, notify } from "herdr";
+import { terminals, hc, readTextFile, writeTextFile, appHome, theme, checking, notify } from "herdr";
 
 const WINDOW_MS = 120000;          // only try to restore during the first 2 minutes after start
 const MAX_AGE = 14 * 86400;        // ignore records older than 14 days
@@ -27,12 +27,20 @@ export default class ClaudeSessionRestore extends View {
       for (const t of terminals()) {
         const addr = t.address;
         if (!addr || String(addr).includes("/") || this.done.has(addr)) continue; // local terminals only
-        if (t.state !== "live" || t.agent) { continue; }                           // already running something
+        // Only into an idle shell: never where an agent reports in, nor where another program runs.
+        if (t.state !== "live" || t.report?.app || !t.program?.shell) { continue; }
         let rec = null;
         try { const txt = await readTextFile(`${appHome()}/data/claude-sessions/${addr}.json`); rec = txt ? JSON.parse(txt) : null; } catch { rec = null; }
         if (!rec || !rec.session_id || !/^[0-9a-f-]{36}$/i.test(rec.session_id)) continue;
         if (now - (rec.updated || 0) > MAX_AGE) continue;
+        if (now - (rec.updated || 0) < 120) { this.done.add(addr); continue; }     // Claude started just now: it's running there
+        // Marker survives mod reloads (this.done doesn't): never send the same resume twice within 10 min.
+        const mark = `${appHome()}/data/claude-session-restore/${addr}.json`;
+        let prev = null;
+        try { prev = await readTextFile(mark); } catch { prev = null; }
+        try { const m = prev ? JSON.parse(prev) : null; if (m && m.session_id === rec.session_id && now - (m.sent || 0) < 600) { this.done.add(addr); continue; } } catch {}
         this.done.add(addr);
+        try { await writeTextFile(mark, JSON.stringify({ session_id: rec.session_id, sent: now }), prev); } catch {}
         const cd = rec.cwd && norm(rec.cwd) !== norm(t.cwd) ? `cd "${fwd(rec.cwd)}"; ` : "";
         try {
           const r = await hc(["send", addr, `${cd}claude --resume ${rec.session_id}`]);
